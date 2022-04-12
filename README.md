@@ -1,3 +1,5 @@
+[![Go](https://github.com/aellwein/netcup-dns-api/actions/workflows/go.yml/badge.svg)](https://github.com/aellwein/netcup-dns-api/actions/workflows/go.yml)
+
 netcup-dns-api
 ==============
 
