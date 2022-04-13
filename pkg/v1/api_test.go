@@ -135,16 +135,16 @@ func TestStringerImplsAreReturningValidJson(t *testing.T) {
 		DeleteRecord: false,
 		State:        "yes",
 	}
-	output := make(map[string]any)
+	output := make(map[string]interface{})
 	err := json.NewDecoder(strings.NewReader(dnsZone.String())).Decode(&output)
 	assert.NoError(t, err)
-	output = make(map[string]any)
+	output = make(map[string]interface{})
 	err = json.NewDecoder(strings.NewReader(nbr.String())).Decode(&output)
 	assert.NoError(t, err)
-	output = make(map[string]any)
+	output = make(map[string]interface{})
 	err = json.NewDecoder(strings.NewReader(sess.String())).Decode(&output)
 	assert.NoError(t, err)
-	output = make(map[string]any)
+	output = make(map[string]interface{})
 	err = json.NewDecoder(strings.NewReader(dnsRecord.String())).Decode(&output)
 	assert.NoError(t, err)
 }
@@ -153,12 +153,12 @@ func withTestServer() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		dec := json.NewDecoder(r.Body)
 		type UniBody struct {
-			Action string         `json:"action"`
-			Params map[string]any `json:"param"`
+			Action string                 `json:"action"`
+			Params map[string]interface{} `json:"param"`
 		}
 		// we use a map as "uni-body" payload receiver to cope with any possible request type.
 		ub := &UniBody{
-			Params: make(map[string]any),
+			Params: make(map[string]interface{}),
 		}
 		err := dec.Decode(ub)
 		if err != nil {
@@ -248,13 +248,13 @@ func withTestServer() *httptest.Server {
 				http.Error(w, "not found", 404)
 			}
 			dnsZoneResp := &DnsZoneData{
-				DomainName:   ub.Params["dnszone"].(map[string]any)["name"].(string),
-				Ttl:          ub.Params["dnszone"].(map[string]any)["ttl"].(string),
-				Serial:       ub.Params["dnszone"].(map[string]any)["serial"].(string),
-				Refresh:      ub.Params["dnszone"].(map[string]any)["refresh"].(string),
-				Retry:        ub.Params["dnszone"].(map[string]any)["retry"].(string),
-				Expire:       ub.Params["dnszone"].(map[string]any)["expire"].(string),
-				DnsSecStatus: ub.Params["dnszone"].(map[string]any)["dnssecstatus"].(bool),
+				DomainName:   ub.Params["dnszone"].(map[string]interface{})["name"].(string),
+				Ttl:          ub.Params["dnszone"].(map[string]interface{})["ttl"].(string),
+				Serial:       ub.Params["dnszone"].(map[string]interface{})["serial"].(string),
+				Refresh:      ub.Params["dnszone"].(map[string]interface{})["refresh"].(string),
+				Retry:        ub.Params["dnszone"].(map[string]interface{})["retry"].(string),
+				Expire:       ub.Params["dnszone"].(map[string]interface{})["expire"].(string),
+				DnsSecStatus: ub.Params["dnszone"].(map[string]interface{})["dnssecstatus"].(bool),
 			}
 			resp := &UpdateDnsZoneResponsePayload{
 				ResponseData: dnsZoneResp,
@@ -269,7 +269,7 @@ func withTestServer() *httptest.Server {
 			if ub.Params["domainname"] != "example.org" {
 				http.Error(w, "not found", 404)
 			}
-			recs := castToDnsRecords(ub.Params["dnsrecordset"].(map[string]any)["dnsrecords"].([]interface{}))
+			recs := castToDnsRecords(ub.Params["dnsrecordset"].(map[string]interface{})["dnsrecords"].([]interface{}))
 
 			resp := &UpdateDnsRecordsResponsePayload{
 				ResponseData: &UpdateDnsRecordsResponseData{
@@ -293,7 +293,7 @@ func withTestServer() *httptest.Server {
 func castToDnsRecords(r []interface{}) *[]DnsRecord {
 	res := make([]DnsRecord, 0)
 	for _, i := range r {
-		m := i.(map[string]any)
+		m := i.(map[string]interface{})
 		rec := DnsRecord{
 			Id:           m["id"].(string),
 			Hostname:     m["hostname"].(string),

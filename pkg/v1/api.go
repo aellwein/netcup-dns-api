@@ -478,7 +478,7 @@ func (d *DnsRecord) String() string {
 }
 
 // internal helper for doing HTTP post with given payload.
-func doPost(endpoint string, payload any) (*bytes.Buffer, error) {
+func doPost(endpoint string, payload interface{}) (*bytes.Buffer, error) {
 	var buf bytes.Buffer
 
 	enc := json.NewEncoder(&buf)
