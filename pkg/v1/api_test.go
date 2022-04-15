@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -12,57 +13,157 @@ import (
 )
 
 func TestLogin(t *testing.T) {
-	ts := withTestServer()
+	ts := withTestServer(
+		successfulLoginRequest(),
+		successfulLoginResponse(),
+	)
 	defer ts.Close()
 
-	client := NewNetcupDnsClientWithOptions(1234567, "someKey", "somePass", &NetcupDnsClientOptions{ApiEndpoint: ts.URL, ClientRequestId: "someid"})
+	client := NewNetcupDnsClientWithOptions(1234567, "someKey", "somePass", &NetcupDnsClientOptions{ApiEndpoint: ts.URL, ClientRequestId: "someId"})
 	sess, err := client.Login()
+
 	assert.NoError(t, err)
-	assert.Equal(t, "1337", sess.apiSessionId)
+	assert.Equal(t, string(StatusSuccess), sess.LastResponse.Status)
+	assert.NotEmpty(t, sess.apiSessionId)
+}
+
+func TestLoginFailed(t *testing.T) {
+	ts := withTestServer(
+		successfulLoginRequest(),
+		unsuccessfulLoginResponse(),
+	)
+	defer ts.Close()
+
+	client := NewNetcupDnsClientWithOptions(1234567, "someKey", "somePass", &NetcupDnsClientOptions{ApiEndpoint: ts.URL, ClientRequestId: "someId"})
+	_, err := client.Login()
+
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, "Login failed")
 }
 
 func TestLogout(t *testing.T) {
-	ts := withTestServer()
+	ts := withTestServer(
+		successfulLoginRequest(),
+		successfulLoginResponse(),
+		successfulLogoutRequest(),
+		successfulLogoutResponse(),
+	)
 	defer ts.Close()
 
-	client := NewNetcupDnsClientWithOptions(1234567, "someKey", "somePass", &NetcupDnsClientOptions{ApiEndpoint: ts.URL, ClientRequestId: "someid"})
+	client := NewNetcupDnsClientWithOptions(1234567, "someKey", "somePass", &NetcupDnsClientOptions{ApiEndpoint: ts.URL, ClientRequestId: "someId"})
 	sess, err := client.Login()
 	assert.NoError(t, err)
+
 	err = sess.Logout()
 	assert.NoError(t, err)
 }
 
 func TestInfoDnsZone(t *testing.T) {
-	ts := withTestServer()
+	ts := withTestServer(
+		successfulLoginRequest(),
+		successfulLoginResponse(),
+		successfulInfoDnsZoneRequest(),
+		successfulInfoDnsZoneResponse(),
+		successfulLogoutRequest(),
+		successfulLogoutResponse(),
+	)
 	defer ts.Close()
 
-	client := NewNetcupDnsClientWithOptions(1234567, "someKey", "somePass", &NetcupDnsClientOptions{ApiEndpoint: ts.URL, ClientRequestId: "someid"})
+	client := NewNetcupDnsClientWithOptions(1234567, "someKey", "somePass", &NetcupDnsClientOptions{ApiEndpoint: ts.URL, ClientRequestId: "someId"})
 	sess, err := client.Login()
 	assert.NoError(t, err)
+	defer sess.Logout()
+
 	dns, err := sess.InfoDnsZone("example.org")
+	assert.NoError(t, err)
 	assert.Equal(t, "example.org", dns.DomainName)
 	assert.Equal(t, "1209600", dns.Expire)
 }
 
-func TestInfoDnsRecords(t *testing.T) {
-	ts := withTestServer()
+func TestInfoDnsZoneFailed(t *testing.T) {
+	ts := withTestServer(
+		successfulLoginRequest(),
+		successfulLoginResponse(),
+		unsuccessfulInfoDnsZoneRequest(),
+		unsuccessfulInfoDnsZoneResponse(),
+		successfulLogoutRequest(),
+		successfulLogoutResponse(),
+	)
 	defer ts.Close()
 
-	client := NewNetcupDnsClientWithOptions(1234567, "someKey", "somePass", &NetcupDnsClientOptions{ApiEndpoint: ts.URL, ClientRequestId: "someid"})
+	client := NewNetcupDnsClientWithOptions(1234567, "someKey", "somePass", &NetcupDnsClientOptions{ApiEndpoint: ts.URL, ClientRequestId: "someId"})
 	sess, err := client.Login()
 	assert.NoError(t, err)
+	defer sess.Logout()
+
+	_, err = sess.InfoDnsZone("wrongdomain.org")
+
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, "InfoDnsZone failed")
+}
+
+func TestInfoDnsRecords(t *testing.T) {
+	ts := withTestServer(
+		successfulLoginRequest(),
+		successfulLoginResponse(),
+		successfulInfoDnsRecordsRequest(),
+		successfulInfoDnsRecordsResponse(),
+		successfulLogoutRequest(),
+		successfulLogoutResponse(),
+	)
+	defer ts.Close()
+
+	client := NewNetcupDnsClientWithOptions(1234567, "someKey", "somePass", &NetcupDnsClientOptions{ApiEndpoint: ts.URL, ClientRequestId: "someId"})
+	sess, err := client.Login()
+	assert.NoError(t, err)
+	defer sess.Logout()
+
 	dnsRecs, err := sess.InfoDnsRecords("example.org")
+
 	assert.NoError(t, err)
 	assert.NotEmpty(t, dnsRecs)
 }
 
-func TestUpdateDnsZone(t *testing.T) {
-	ts := withTestServer()
+func TestInfoDnsRecordsFailed(t *testing.T) {
+	ts := withTestServer(
+		successfulLoginRequest(),
+		successfulLoginResponse(),
+		unsuccessfulInfoDnsRecordsRequest(),
+		unsuccessfulInfoDnsRecordsResponse(),
+		successfulLogoutRequest(),
+		successfulLogoutResponse(),
+	)
 	defer ts.Close()
 
-	client := NewNetcupDnsClientWithOptions(1234567, "someKey", "somePass", &NetcupDnsClientOptions{ApiEndpoint: ts.URL, ClientRequestId: "someid"})
+	client := NewNetcupDnsClientWithOptions(1234567, "someKey", "somePass", &NetcupDnsClientOptions{ApiEndpoint: ts.URL, ClientRequestId: "someId"})
 	sess, err := client.Login()
 	assert.NoError(t, err)
+	defer sess.Logout()
+
+	_, err = sess.InfoDnsRecords("wrongdomain.org")
+
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, "InfoDnsRecords failed")
+}
+
+func TestUpdateDnsZone(t *testing.T) {
+	ts := withTestServer(
+		successfulLoginRequest(),
+		successfulLoginResponse(),
+		successfulInfoDnsZoneRequest(),
+		successfulInfoDnsZoneResponse(),
+		successfulUpdateDnsZoneRequest(),
+		successfulUpdateDnsZoneResponse(),
+		successfulLogoutRequest(),
+		successfulLogoutResponse(),
+	)
+	defer ts.Close()
+
+	client := NewNetcupDnsClientWithOptions(1234567, "someKey", "somePass", &NetcupDnsClientOptions{ApiEndpoint: ts.URL, ClientRequestId: "someId"})
+	sess, err := client.Login()
+	assert.NoError(t, err)
+	defer sess.Logout()
+
 	zone, err := sess.InfoDnsZone("example.org")
 	assert.NoError(t, err)
 	assert.Equal(t, "3600", zone.Ttl)
@@ -74,29 +175,97 @@ func TestUpdateDnsZone(t *testing.T) {
 	assert.Equal(t, "3601", zone2.Ttl)
 }
 
-func TestUpdateDnsRecords(t *testing.T) {
-	ts := withTestServer()
+func TestUpdateDnsZoneFailed(t *testing.T) {
+	ts := withTestServer(
+		successfulLoginRequest(),
+		successfulLoginResponse(),
+		unsuccessfulUpdateDnsZoneRequest(),
+		unsuccessfulUpdateDnsZoneResponse(),
+		successfulLogoutRequest(),
+		successfulLogoutResponse(),
+	)
 	defer ts.Close()
 
-	client := NewNetcupDnsClientWithOptions(1234567, "someKey", "somePass", &NetcupDnsClientOptions{ApiEndpoint: ts.URL, ClientRequestId: "someid"})
+	client := NewNetcupDnsClientWithOptions(1234567, "someKey", "somePass", &NetcupDnsClientOptions{ApiEndpoint: ts.URL, ClientRequestId: "someId"})
 	sess, err := client.Login()
 	assert.NoError(t, err)
+	defer sess.Logout()
 
-	record := &DnsRecord{
-		Id:           "",
-		Hostname:     "subdomain",
-		Type:         "TXT",
-		Priority:     "0",
-		Destination:  "test",
-		DeleteRecord: false,
-		State:        "yes",
+	zone := &DnsZoneData{
+		DomainName:   "wrongdomain.org",
+		Ttl:          "3601",
+		Serial:       "3423083",
+		Refresh:      "28800",
+		Retry:        "7200",
+		Expire:       "1209600",
+		DnsSecStatus: false,
 	}
+	_, err = sess.UpdateDnsZone("wrongdomain.org", zone)
 
-	recs, err := sess.UpdateDnsRecords("example.org", &[]DnsRecord{
-		*record,
-	})
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, "UpdateDnsZone failed")
+}
+
+func TestUpdateDnsRecords(t *testing.T) {
+	ts := withTestServer(
+		successfulLoginRequest(),
+		successfulLoginResponse(),
+		successfulInfoDnsRecordsRequest(),
+		successfulInfoDnsRecordsResponse(),
+		successfulUpdateDnsRecordsRequest(),
+		successfulUpdateDnsRecordsResponse(),
+		successfulLogoutRequest(),
+		successfulLogoutResponse(),
+	)
+	defer ts.Close()
+
+	client := NewNetcupDnsClientWithOptions(1234567, "someKey", "somePass", &NetcupDnsClientOptions{ApiEndpoint: ts.URL, ClientRequestId: "someId"})
+	sess, err := client.Login()
 	assert.NoError(t, err)
-	assert.ElementsMatch(t, []DnsRecord{*record}, *recs)
+	defer sess.Logout()
+
+	inRecs, err := sess.InfoDnsRecords("example.org")
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(*inRecs))
+
+	(*inRecs)[1].DeleteRecord = true // second record is supposed to be deleted
+
+	outRecs, err := sess.UpdateDnsRecords("example.org", inRecs)
+	assert.NoError(t, err)
+
+	assert.Equal(t, 1, len(*outRecs))
+}
+
+func TestUpdateDnsRecordsFailed(t *testing.T) {
+	ts := withTestServer(
+		successfulLoginRequest(),
+		successfulLoginResponse(),
+		unsuccessfulUpdateDnsRecordsRequest(),
+		unsuccessfulUpdateDnsRecordsResponse(),
+		successfulLogoutRequest(),
+		successfulLogoutResponse(),
+	)
+	defer ts.Close()
+
+	client := NewNetcupDnsClientWithOptions(1234567, "someKey", "somePass", &NetcupDnsClientOptions{ApiEndpoint: ts.URL, ClientRequestId: "someId"})
+	sess, err := client.Login()
+	assert.NoError(t, err)
+	defer sess.Logout()
+
+	_, err = sess.UpdateDnsRecords("wrongdomain.org", &[]DnsRecord{
+		{
+			Id:           "1234",
+			Hostname:     "www",
+			Type:         "A",
+			Priority:     "10",
+			Destination:  "127.0.0.1",
+			DeleteRecord: false,
+			State:        "yes",
+		},
+	})
+
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, "UpdateDnsRecords failed")
 }
 
 func TestStringerImplsAreReturningValidJson(t *testing.T) {
@@ -149,161 +318,446 @@ func TestStringerImplsAreReturningValidJson(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func withTestServer() *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		dec := json.NewDecoder(r.Body)
-		type UniBody struct {
-			Action string                 `json:"action"`
-			Params map[string]interface{} `json:"param"`
-		}
-		// we use a map as "uni-body" payload receiver to cope with any possible request type.
-		ub := &UniBody{
-			Params: make(map[string]interface{}),
-		}
-		err := dec.Decode(ub)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("unable to decode payload: %v", err), 400)
-			return
-		}
-
-		switch ub.Action {
-		case string(actionLogin):
-			w.Header().Set("Content-Type", "application/json")
-			resp := &LoginResponsePayload{
-				ResponseData: &LoginResponseData{
-					ApiSessionId: "1337",
-				},
-			}
-			enc := json.NewEncoder(w)
-			if err := enc.Encode(resp); err != nil {
-				panic(err)
-			}
-			return
-
-		case string(actionLogout):
-			resp := make(map[string]string)
-			enc := json.NewEncoder(w)
-			if err := enc.Encode(resp); err != nil {
-				panic(err)
-			}
-			return
-
-		case string(actionInfoDnsRecords):
-			if ub.Params["domainname"] != "example.org" {
-				http.Error(w, "not found", 404)
-			}
-			resp := &InfoDnsRecordsResponsePayload{
-				ResponseData: &InfoDnsRecordsResponseData{
-					DnsRecords: []DnsRecord{
-						{
-							Id:           "1234",
-							Hostname:     "www",
-							Type:         "A",
-							Priority:     "10",
-							Destination:  "127.0.0.1",
-							DeleteRecord: false,
-							State:        "yes",
-						},
-						{
-							Id:           "12345",
-							Hostname:     "subdomain",
-							Type:         "A",
-							Priority:     "10",
-							Destination:  "127.0.0.1",
-							DeleteRecord: false,
-							State:        "yes",
-						},
-					},
-				},
-			}
-			enc := json.NewEncoder(w)
-			if err := enc.Encode(resp); err != nil {
-				panic(err)
-			}
-			return
-
-		case string(actionInfoDnsZone):
-			if ub.Params["domainname"] != "example.org" {
-				http.Error(w, "not found", 404)
-			}
-			resp := &InfoDnsZoneResponsePayload{
-				ResponseData: &DnsZoneData{
-					DomainName:   "example.org",
-					Ttl:          "3600",
-					Serial:       "3423083",
-					Refresh:      "28800",
-					Retry:        "7200",
-					Expire:       "1209600",
-					DnsSecStatus: false,
-				},
-			}
-			enc := json.NewEncoder(w)
-			if err := enc.Encode(resp); err != nil {
-				panic(err)
-			}
-			return
-
-		case string(actionUpdateDnsZone):
-			if ub.Params["domainname"] != "example.org" {
-				http.Error(w, "not found", 404)
-			}
-			dnsZoneResp := &DnsZoneData{
-				DomainName:   ub.Params["dnszone"].(map[string]interface{})["name"].(string),
-				Ttl:          ub.Params["dnszone"].(map[string]interface{})["ttl"].(string),
-				Serial:       ub.Params["dnszone"].(map[string]interface{})["serial"].(string),
-				Refresh:      ub.Params["dnszone"].(map[string]interface{})["refresh"].(string),
-				Retry:        ub.Params["dnszone"].(map[string]interface{})["retry"].(string),
-				Expire:       ub.Params["dnszone"].(map[string]interface{})["expire"].(string),
-				DnsSecStatus: ub.Params["dnszone"].(map[string]interface{})["dnssecstatus"].(bool),
-			}
-			resp := &UpdateDnsZoneResponsePayload{
-				ResponseData: dnsZoneResp,
-			}
-			enc := json.NewEncoder(w)
-			if err := enc.Encode(resp); err != nil {
-				panic(err)
-			}
-			return
-
-		case string(actionUpdateDnsRecords):
-			if ub.Params["domainname"] != "example.org" {
-				http.Error(w, "not found", 404)
-			}
-			recs := castToDnsRecords(ub.Params["dnsrecordset"].(map[string]interface{})["dnsrecords"].([]interface{}))
-
-			resp := &UpdateDnsRecordsResponsePayload{
-				ResponseData: &UpdateDnsRecordsResponseData{
-					DnsRecords: *recs,
-				},
-			}
-			enc := json.NewEncoder(w)
-			if err := enc.Encode(resp); err != nil {
-				panic(err)
-			}
-			return
-
-		default:
-			http.Error(w, fmt.Sprintf("unknown action: %s", ub.Action), 400)
-			return
-		}
-
-	}))
+func successfulLoginRequest() *LoginPayload {
+	return &LoginPayload{
+		Action: actionLogin,
+		Params: &LoginParams{
+			CustomerNumber:  1234567,
+			ApiKey:          "someKey",
+			ApiPassword:     "somePass",
+			ClientRequestId: "someId",
+		},
+	}
 }
 
-func castToDnsRecords(r []interface{}) *[]DnsRecord {
-	res := make([]DnsRecord, 0)
-	for _, i := range r {
-		m := i.(map[string]interface{})
-		rec := DnsRecord{
-			Id:           m["id"].(string),
-			Hostname:     m["hostname"].(string),
-			Type:         m["type"].(string),
-			Priority:     m["priority"].(string),
-			Destination:  m["destination"].(string),
-			DeleteRecord: m["deleterecord"].(bool),
-			State:        m["state"].(string),
-		}
-		res = append(res, rec)
+func successfulLoginResponse() *LoginResponsePayload {
+	return &LoginResponsePayload{
+		NetcupBaseResponseMessage: NetcupBaseResponseMessage{
+			ServerRequestId: "xyz",
+			ClientRequestId: "someId",
+			Action:          string(actionLogin),
+			Status:          string(StatusSuccess),
+			StatusCode:      200,
+			ShortMessage:    "Ok",
+			LongMessage:     "Login was ok",
+		},
+		ResponseData: &LoginResponseData{
+			ApiSessionId: "1337",
+		},
 	}
-	return &res
+}
+
+func unsuccessfulLoginResponse() map[string]interface{} {
+	return map[string]interface{}{
+		"serverrequestid": "xyz",
+		"clientrequestid": "someId",
+		"action":          actionLogin,
+		"status":          string(StatusError),
+		"statuscode":      400,
+		"shortmessage":    "invalid credentials",
+		"longmessage":     "invalid credentials",
+		"responsedata":    "",
+	}
+}
+
+func successfulLogoutRequest() *BasePayload {
+	return &BasePayload{
+		Action: actionLogout,
+		Params: &NetcupBaseParams{
+			CustomerNumber:  1234567,
+			ApiSessionId:    "1337",
+			ApiKey:          "someKey",
+			ClientRequestId: "someId",
+		},
+	}
+}
+
+// we don't have an explicit type for logout response...
+func successfulLogoutResponse() map[string]interface{} {
+	return map[string]interface{}{
+		"action":     string(actionLogout),
+		"statuscode": string(StatusSuccess),
+	}
+}
+
+func successfulInfoDnsZoneRequest() *InfoDnsZonePayload {
+	return &InfoDnsZonePayload{
+		Action: actionInfoDnsZone,
+		Params: &InfoDnsZoneParams{
+			NetcupBaseParams: NetcupBaseParams{
+				CustomerNumber:  1234567,
+				ApiSessionId:    "1337",
+				ApiKey:          "someKey",
+				ClientRequestId: "someId",
+			},
+			DomainName: "example.org",
+		},
+	}
+}
+
+func unsuccessfulInfoDnsZoneRequest() *InfoDnsZonePayload {
+	return &InfoDnsZonePayload{
+		Action: actionInfoDnsZone,
+		Params: &InfoDnsZoneParams{
+			NetcupBaseParams: NetcupBaseParams{
+				CustomerNumber:  1234567,
+				ApiSessionId:    "1337",
+				ApiKey:          "someKey",
+				ClientRequestId: "someId",
+			},
+			DomainName: "wrongdomain.org",
+		},
+	}
+}
+
+func successfulInfoDnsZoneResponse() *InfoDnsZoneResponsePayload {
+	return &InfoDnsZoneResponsePayload{
+		NetcupBaseResponseMessage: NetcupBaseResponseMessage{
+			Action:          string(actionInfoDnsZone),
+			ServerRequestId: "xyz",
+			ClientRequestId: "someId",
+			Status:          string(StatusSuccess),
+			StatusCode:      200,
+			ShortMessage:    "",
+			LongMessage:     "",
+		},
+		ResponseData: &DnsZoneData{
+			DomainName:   "example.org",
+			Ttl:          "3600",
+			Serial:       "3423083",
+			Refresh:      "28800",
+			Retry:        "7200",
+			Expire:       "1209600",
+			DnsSecStatus: false,
+		},
+	}
+}
+
+func unsuccessfulInfoDnsZoneResponse() map[string]interface{} {
+	return map[string]interface{}{
+		"action":          string(actionInfoDnsZone),
+		"serverrequestid": "xyz",
+		"clientrequestid": "someId",
+		"status":          string(StatusError),
+		"statuscode":      400,
+		"shortmessage":    "invalid domain name",
+		"longmessage":     "invalid domain name provided",
+		"responsedata":    "",
+	}
+}
+
+func successfulInfoDnsRecordsRequest() *InfoDnsRecordsPayload {
+	return &InfoDnsRecordsPayload{
+		Action: actionInfoDnsRecords,
+		Params: &InfoDnsRecordsParams{
+			NetcupBaseParams: NetcupBaseParams{
+				CustomerNumber:  1234567,
+				ApiSessionId:    "1337",
+				ApiKey:          "someKey",
+				ClientRequestId: "someId",
+			},
+			DomainName: "example.org",
+		},
+	}
+}
+
+func unsuccessfulInfoDnsRecordsRequest() *InfoDnsRecordsPayload {
+	return &InfoDnsRecordsPayload{
+		Action: actionInfoDnsRecords,
+		Params: &InfoDnsRecordsParams{
+			NetcupBaseParams: NetcupBaseParams{
+				CustomerNumber:  1234567,
+				ApiSessionId:    "1337",
+				ApiKey:          "someKey",
+				ClientRequestId: "someId",
+			},
+			DomainName: "wrongdomain.org",
+		},
+	}
+}
+
+func successfulInfoDnsRecordsResponse() *InfoDnsRecordsResponsePayload {
+	return &InfoDnsRecordsResponsePayload{
+		NetcupBaseResponseMessage: NetcupBaseResponseMessage{
+			ServerRequestId: "xyz",
+			ClientRequestId: "someId",
+			Action:          string(actionInfoDnsRecords),
+			Status:          string(StatusSuccess),
+			StatusCode:      200,
+			ShortMessage:    "request ok",
+			LongMessage:     "whatever a long message is",
+		},
+		ResponseData: &InfoDnsRecordsResponseData{
+			DnsRecords: []DnsRecord{
+				{
+					Id:           "1234",
+					Hostname:     "www",
+					Type:         "A",
+					Priority:     "10",
+					Destination:  "127.0.0.1",
+					DeleteRecord: false,
+					State:        "yes",
+				},
+				{
+					Id:           "12345",
+					Hostname:     "subdomain",
+					Type:         "A",
+					Priority:     "10",
+					Destination:  "127.0.0.1",
+					DeleteRecord: false,
+					State:        "yes",
+				},
+			},
+		},
+	}
+}
+
+func unsuccessfulInfoDnsRecordsResponse() map[string]interface{} {
+	return map[string]interface{}{
+		"action":          string(actionInfoDnsRecords),
+		"serverrequestid": "xyz",
+		"clientrequestid": "someId",
+		"status":          string(StatusError),
+		"statuscode":      400,
+		"shortmessage":    "invalid domain name",
+		"longmessage":     "invalid domain name provided",
+		"responsedata":    "",
+	}
+}
+
+func successfulUpdateDnsZoneRequest() *UpdateDnsZonePayload {
+	return &UpdateDnsZonePayload{
+		Action: actionUpdateDnsZone,
+		Params: &UpdateDnsZoneParams{
+			NetcupBaseParams: NetcupBaseParams{
+				CustomerNumber:  1234567,
+				ApiSessionId:    "1337",
+				ApiKey:          "someKey",
+				ClientRequestId: "someId",
+			},
+			DomainName: "example.org",
+			DnsZone: &DnsZoneData{
+				DomainName:   "example.org",
+				Ttl:          "3601",
+				Serial:       "3423083",
+				Refresh:      "28800",
+				Retry:        "7200",
+				Expire:       "1209600",
+				DnsSecStatus: false,
+			},
+		},
+	}
+}
+
+func unsuccessfulUpdateDnsZoneRequest() *UpdateDnsZonePayload {
+	return &UpdateDnsZonePayload{
+		Action: actionUpdateDnsZone,
+		Params: &UpdateDnsZoneParams{
+			NetcupBaseParams: NetcupBaseParams{
+				CustomerNumber:  1234567,
+				ApiSessionId:    "1337",
+				ApiKey:          "someKey",
+				ClientRequestId: "someId",
+			},
+			DomainName: "wrongdomain.org",
+			DnsZone: &DnsZoneData{
+				DomainName:   "wrongdomain.org",
+				Ttl:          "3601",
+				Serial:       "3423083",
+				Refresh:      "28800",
+				Retry:        "7200",
+				Expire:       "1209600",
+				DnsSecStatus: false,
+			},
+		},
+	}
+}
+
+func successfulUpdateDnsZoneResponse() *UpdateDnsZoneResponsePayload {
+	return &UpdateDnsZoneResponsePayload{
+		NetcupBaseResponseMessage: NetcupBaseResponseMessage{
+			ServerRequestId: "xyz",
+			ClientRequestId: "someId",
+			Action:          string(actionUpdateDnsZone),
+			Status:          string(StatusSuccess),
+			StatusCode:      200,
+			ShortMessage:    "update was ok",
+			LongMessage:     "Update of the DNS zone was done correctly",
+		},
+		ResponseData: &DnsZoneData{
+			DomainName:   "example.org",
+			Ttl:          "3601",
+			Serial:       "3423083",
+			Refresh:      "28800",
+			Retry:        "7200",
+			Expire:       "1209600",
+			DnsSecStatus: false,
+		},
+	}
+}
+
+func unsuccessfulUpdateDnsZoneResponse() map[string]interface{} {
+	return map[string]interface{}{
+		"action":          string(actionUpdateDnsRecords),
+		"serverrequestid": "xyz",
+		"clientrequestid": "someId",
+		"status":          string(StatusError),
+		"statuscode":      400,
+		"shortmessage":    "invalid domain name",
+		"longmessage":     "invalid domain name provided",
+		"responsedata":    "",
+	}
+}
+
+func successfulUpdateDnsRecordsRequest() *UpdateDnsRecordsPayload {
+	return &UpdateDnsRecordsPayload{
+		Action: actionUpdateDnsRecords,
+		Params: &UpdateDnsRecordsParams{
+			NetcupBaseParams: NetcupBaseParams{
+				CustomerNumber:  1234567,
+				ApiSessionId:    "1337",
+				ApiKey:          "someKey",
+				ClientRequestId: "someId",
+			},
+			DomainName: "example.org",
+			DnsRecords: &DnsRecordSet{
+				Content: []DnsRecord{
+					{
+						Id:           "1234",
+						Hostname:     "www",
+						Type:         "A",
+						Priority:     "10",
+						Destination:  "127.0.0.1",
+						DeleteRecord: false,
+						State:        "yes",
+					},
+					{
+						Id:           "12345",
+						Hostname:     "subdomain",
+						Type:         "A",
+						Priority:     "10",
+						Destination:  "127.0.0.1",
+						DeleteRecord: true,
+						State:        "yes",
+					},
+				},
+			},
+		},
+	}
+}
+
+func unsuccessfulUpdateDnsRecordsRequest() *UpdateDnsRecordsPayload {
+	return &UpdateDnsRecordsPayload{
+		Action: actionUpdateDnsRecords,
+		Params: &UpdateDnsRecordsParams{
+			NetcupBaseParams: NetcupBaseParams{
+				CustomerNumber:  1234567,
+				ApiSessionId:    "1337",
+				ApiKey:          "someKey",
+				ClientRequestId: "someId",
+			},
+			DomainName: "wrongdomain.org",
+			DnsRecords: &DnsRecordSet{
+				Content: []DnsRecord{
+					{
+						Id:           "1234",
+						Hostname:     "www",
+						Type:         "A",
+						Priority:     "10",
+						Destination:  "127.0.0.1",
+						DeleteRecord: false,
+						State:        "yes",
+					},
+				},
+			},
+		},
+	}
+}
+
+func successfulUpdateDnsRecordsResponse() *UpdateDnsRecordsResponsePayload {
+	return &UpdateDnsRecordsResponsePayload{
+		NetcupBaseResponseMessage: NetcupBaseResponseMessage{
+			ServerRequestId: "xyz",
+			ClientRequestId: "someId",
+			Action:          string(actionUpdateDnsRecords),
+			Status:          string(StatusSuccess),
+			StatusCode:      200,
+			ShortMessage:    "update ok",
+			LongMessage:     "DNS records were updated",
+		},
+		ResponseData: &UpdateDnsRecordsResponseData{
+			DnsRecords: []DnsRecord{
+				{
+					Id:           "1234",
+					Hostname:     "www",
+					Type:         "A",
+					Priority:     "10",
+					Destination:  "127.0.0.1",
+					DeleteRecord: false,
+					State:        "yes",
+				},
+			},
+		},
+	}
+}
+
+func unsuccessfulUpdateDnsRecordsResponse() map[string]interface{} {
+	return map[string]interface{}{
+		"action":          string(actionUpdateDnsRecords),
+		"serverrequestid": "xyz",
+		"clientrequestid": "someId",
+		"status":          string(StatusError),
+		"statuscode":      400,
+		"shortmessage":    "invalid domain name",
+		"longmessage":     "invalid domain name provided",
+		"responsedata":    "",
+	}
+}
+
+func withTestServer(reqResp ...interface{}) *httptest.Server {
+	var reqIdx int
+	var reqIdxP *int = &reqIdx
+
+	if len(reqResp) == 0 || len(reqResp)%2 != 0 {
+		panic("expected sequence of request and response payloads (both mandatory)")
+	}
+	serv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if *reqIdxP >= len(reqResp) {
+			http.Error(w, fmt.Sprintf("Too much requests as expected: %d, expected: %d", *reqIdxP, len(reqResp)/2), 500)
+			return
+		}
+		req := reqResp[*reqIdxP]
+		resp := reqResp[*reqIdxP+1]
+		*reqIdxP = *reqIdxP + 2
+
+		expectedReq := toAnyJson(&req)
+		dec := json.NewDecoder(r.Body)
+		receivedReq := make(map[string]interface{})
+		if err := dec.Decode(&receivedReq); err != nil {
+			http.Error(w, fmt.Sprintf("unable to decode incoming request: %v", err), 400)
+			return
+		}
+		if !reflect.DeepEqual(expectedReq, receivedReq) {
+			http.Error(w, fmt.Sprintf("request is not as expected:\nexpected:\n%v\nreceived:\n%v", expectedReq, receivedReq), 400)
+			return
+		}
+		enc := json.NewEncoder(w)
+		if err := enc.Encode(resp); err != nil {
+			http.Error(w, fmt.Sprintf("unable to encode response: %v", err), 400)
+			return
+		}
+	}))
+	return serv
+}
+
+func toAnyJson(someStruct *interface{}) map[string]interface{} {
+	if b, err := json.Marshal(*someStruct); err != nil {
+		panic(err)
+	} else {
+		result := make(map[string]interface{})
+		if err := json.Unmarshal(b, &result); err != nil {
+			panic(err)
+		}
+		return result
+	}
 }

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 )
 
@@ -17,6 +16,17 @@ const (
 
 // Type for action field of a request payload
 type RequestAction string
+
+// type for status
+type ResponseStatus string
+
+const (
+	StatusSuccess ResponseStatus = "success"
+	StatusError   ResponseStatus = "error"
+	StatusStarted ResponseStatus = "started"
+	StatusPending ResponseStatus = "pending"
+	StatusWarning ResponseStatus = "warning"
+)
 
 const (
 	actionLogin            RequestAction = "login"
@@ -128,7 +138,7 @@ type LoginResponsePayload struct {
 // Inner response data of InfoDnsZone response.
 type InfoDnsZoneResponsePayload struct {
 	NetcupBaseResponseMessage
-	ResponseData *DnsZoneData `json:"responsedata"`
+	ResponseData *DnsZoneData `json:"responsedata,omitempty"`
 }
 
 // Parameters for InfoDnsZone request
@@ -227,7 +237,6 @@ func NewNetcupDnsClientWithOptions(customerNumber int, apiKey string, apiPasswor
 
 // Login to Netcup API. Returns a valid NetcupSession or error.
 func (c *NetcupDnsClient) Login() (*NetcupSession, error) {
-
 	if buf, err := doPost(c.apiEndpoint, &LoginPayload{
 		Action: actionLogin,
 		Params: &LoginParams{
@@ -239,21 +248,18 @@ func (c *NetcupDnsClient) Login() (*NetcupSession, error) {
 	}); err != nil {
 		return nil, err
 	} else {
-		lr := &LoginResponsePayload{
-			ResponseData: &LoginResponseData{},
-		}
-
-		dec := json.NewDecoder(buf)
-		if err := dec.Decode(&lr); err != nil {
+		lr := &LoginResponseData{}
+		if br, err := handleResponse("Login", buf, lr); err != nil {
 			return nil, err
+		} else {
+			return &NetcupSession{
+				apiSessionId:   lr.ApiSessionId,
+				apiKey:         c.apiKey,
+				customerNumber: c.customerNumber,
+				endpoint:       c.apiEndpoint,
+				LastResponse:   br,
+			}, nil
 		}
-		return &NetcupSession{
-			apiSessionId:   lr.ResponseData.ApiSessionId,
-			apiKey:         c.apiKey,
-			customerNumber: c.customerNumber,
-			endpoint:       c.apiEndpoint,
-			LastResponse:   &lr.NetcupBaseResponseMessage,
-		}, nil
 	}
 }
 
@@ -273,15 +279,15 @@ func (s *NetcupSession) InfoDnsZone(domainName string) (*DnsZoneData, error) {
 	}); err != nil {
 		return nil, err
 	} else {
-		resp := &InfoDnsZoneResponsePayload{
-			ResponseData: &DnsZoneData{},
-		}
-		dec := json.NewDecoder(buf)
-		if err := dec.Decode(resp); err != nil {
+		respData := &DnsZoneData{}
+		if br, err := handleResponse("InfoDnsZone", buf, respData); err != nil {
+			if br != nil {
+				s.LastResponse = br
+			}
 			return nil, err
 		} else {
-			s.LastResponse = &resp.NetcupBaseResponseMessage
-			return resp.ResponseData, nil
+			s.LastResponse = br
+			return respData, nil
 		}
 	}
 }
@@ -302,17 +308,17 @@ func (s *NetcupSession) InfoDnsRecords(domainName string) (*[]DnsRecord, error) 
 	}); err != nil {
 		return nil, err
 	} else {
-		resp := &InfoDnsRecordsResponsePayload{
-			ResponseData: &InfoDnsRecordsResponseData{
-				DnsRecords: make([]DnsRecord, 0),
-			},
+		respData := &InfoDnsRecordsResponseData{
+			DnsRecords: make([]DnsRecord, 0),
 		}
-		dec := json.NewDecoder(buf)
-		if err := dec.Decode(resp); err != nil {
+		if br, err := handleResponse("InfoDnsRecords", buf, respData); err != nil {
+			if br != nil {
+				s.LastResponse = br
+			}
 			return nil, err
 		} else {
-			s.LastResponse = &resp.NetcupBaseResponseMessage
-			return &resp.ResponseData.DnsRecords, nil
+			s.LastResponse = br
+			return &respData.DnsRecords, nil
 		}
 	}
 }
@@ -334,15 +340,15 @@ func (s *NetcupSession) UpdateDnsZone(domainName string, dnsZone *DnsZoneData) (
 	}); err != nil {
 		return nil, err
 	} else {
-		resp := &UpdateDnsZoneResponsePayload{
-			ResponseData: &DnsZoneData{},
-		}
-		dec := json.NewDecoder(buf)
-		if err := dec.Decode(resp); err != nil {
+		respData := &DnsZoneData{}
+		if br, err := handleResponse("UpdateDnsZone", buf, respData); err != nil {
+			if br != nil {
+				s.LastResponse = br
+			}
 			return nil, err
 		} else {
-			s.LastResponse = &resp.NetcupBaseResponseMessage
-			return resp.ResponseData, nil
+			s.LastResponse = br
+			return respData, nil
 		}
 	}
 }
@@ -366,17 +372,17 @@ func (s *NetcupSession) UpdateDnsRecords(domainName string, dnsRecordSet *[]DnsR
 	}); err != nil {
 		return nil, err
 	} else {
-		resp := &UpdateDnsRecordsResponsePayload{
-			ResponseData: &UpdateDnsRecordsResponseData{
-				DnsRecords: make([]DnsRecord, 0),
-			},
+		respData := &UpdateDnsRecordsResponseData{
+			DnsRecords: make([]DnsRecord, 0),
 		}
-		dec := json.NewDecoder(buf)
-		if err := dec.Decode(resp); err != nil {
+		if br, err := handleResponse("UpdateDnsRecords", buf, respData); err != nil {
+			if br != nil {
+				s.LastResponse = br
+			}
 			return nil, err
 		} else {
-			s.LastResponse = &resp.NetcupBaseResponseMessage
-			return &resp.ResponseData.DnsRecords, nil
+			s.LastResponse = br
+			return &respData.DnsRecords, nil
 		}
 	}
 }
@@ -392,8 +398,8 @@ func (s *NetcupSession) Logout() error {
 			ClientRequestId: s.LastResponse.ClientRequestId,
 		},
 	}
-	if resp, err := doPost(s.endpoint, req); err != nil {
-		log.Printf("error while logout(): %v. Response was: %v", err, resp.String())
+	// logout is always assumed successful response, but we need to check for technical errors here.
+	if _, err := doPost(s.endpoint, req); err != nil {
 		return err
 	}
 	return nil
@@ -477,6 +483,30 @@ func (d *DnsRecord) String() string {
 	)
 }
 
+func handleResponse(reqType string, buf *bytes.Buffer, respData interface{}) (*NetcupBaseResponseMessage, error) {
+	type ReadResponse struct {
+		NetcupBaseResponseMessage
+		// response data may be empty string, or of any type so we need to be careful here
+		ResponseData interface{} `json:"responsedata"`
+	}
+	resp := &ReadResponse{}
+	dec := json.NewDecoder(buf)
+	if err := dec.Decode(resp); err != nil {
+		return nil, err
+	}
+	if resp.Status != string(StatusSuccess) {
+		return &resp.NetcupBaseResponseMessage, fmt.Errorf("%s failed: (%d) '%s' '%s' '%s'",
+			reqType, resp.StatusCode, resp.Status, resp.ShortMessage, resp.LongMessage)
+	}
+	// try to convert the responseData to the target type
+	b, err := json.Marshal(resp.ResponseData)
+	if err != nil {
+		return &resp.NetcupBaseResponseMessage, err
+	}
+	err = json.Unmarshal(b, respData)
+	return &resp.NetcupBaseResponseMessage, err
+}
+
 // internal helper for doing HTTP post with given payload.
 func doPost(endpoint string, payload interface{}) (*bytes.Buffer, error) {
 	var buf bytes.Buffer
@@ -490,6 +520,12 @@ func doPost(endpoint string, payload interface{}) (*bytes.Buffer, error) {
 		return nil, err
 	} else {
 		if resp.StatusCode >= 400 {
+			if resp.Body != nil {
+				var b bytes.Buffer
+				if n, err := b.ReadFrom(resp.Body); err == nil && n > 0 {
+					return nil, fmt.Errorf("unexpected error code: %d, response: %s", resp.StatusCode, b.String())
+				}
+			}
 			return nil, fmt.Errorf("unexpected error code: %d", resp.StatusCode)
 		}
 		buf.Reset()
