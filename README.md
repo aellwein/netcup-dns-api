@@ -1,4 +1,8 @@
-[![Go](https://github.com/aellwein/netcup-dns-api/actions/workflows/go.yml/badge.svg)](https://github.com/aellwein/netcup-dns-api/actions/workflows/go.yml)
+![GitHub Workflow Status](https://img.shields.io/github/workflow/status/aellwein/netcup-dns-api/Go)
+[![Go Report Card](https://goreportcard.com/badge/github.com/aellwein/netcup-dns-api)](https://goreportcard.com/report/github.com/aellwein/netcup-dns-api)
+![Codecov branch](https://img.shields.io/codecov/c/github/aellwein/netcup-dns-api/master)
+![GitHub](https://img.shields.io/github/license/aellwein/netcup-dns-api)
+![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/aellwein/netcup-dns-api)
 
 netcup-dns-api
 ==============
