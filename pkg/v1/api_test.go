@@ -140,10 +140,11 @@ func TestInfoDnsRecordsFailed(t *testing.T) {
 	assert.NoError(t, err)
 	defer sess.Logout()
 
-	_, err = sess.InfoDnsRecords("wrongdomain.org")
+	records, err := sess.InfoDnsRecords("wrongdomain.org")
 
 	assert.Error(t, err)
 	assert.ErrorContains(t, err, "InfoDnsRecords failed")
+	assert.Empty(t, *records, "resulting slice must be empty")
 }
 
 func TestUpdateDnsZone(t *testing.T) {
@@ -252,7 +253,7 @@ func TestUpdateDnsRecordsFailed(t *testing.T) {
 	assert.NoError(t, err)
 	defer sess.Logout()
 
-	_, err = sess.UpdateDnsRecords("wrongdomain.org", &[]DnsRecord{
+	records, err := sess.UpdateDnsRecords("wrongdomain.org", &[]DnsRecord{
 		{
 			Id:           "1234",
 			Hostname:     "www",
@@ -266,6 +267,7 @@ func TestUpdateDnsRecordsFailed(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.ErrorContains(t, err, "UpdateDnsRecords failed")
+	assert.Empty(t, *records, "resulting slice must be empty")
 }
 
 func TestStringerImplsAreReturningValidJson(t *testing.T) {

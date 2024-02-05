@@ -294,6 +294,7 @@ func (s *NetcupSession) InfoDnsZone(domainName string) (*DnsZoneData, error) {
 
 // Query information about all DNS records.
 func (s *NetcupSession) InfoDnsRecords(domainName string) (*[]DnsRecord, error) {
+	emptyRecs := make([]DnsRecord, 0)
 	if buf, err := doPost(s.endpoint, &InfoDnsRecordsPayload{
 		Action: actionInfoDnsRecords,
 		Params: &InfoDnsRecordsParams{
@@ -306,16 +307,16 @@ func (s *NetcupSession) InfoDnsRecords(domainName string) (*[]DnsRecord, error) 
 			DomainName: domainName,
 		},
 	}); err != nil {
-		return nil, err
+		return &emptyRecs, err
 	} else {
 		respData := &InfoDnsRecordsResponseData{
-			DnsRecords: make([]DnsRecord, 0),
+			DnsRecords: emptyRecs,
 		}
 		if br, err := handleResponse("InfoDnsRecords", buf, respData); err != nil {
 			if br != nil {
 				s.LastResponse = br
 			}
-			return nil, err
+			return &emptyRecs, err
 		} else {
 			s.LastResponse = br
 			return &respData.DnsRecords, nil
@@ -355,6 +356,7 @@ func (s *NetcupSession) UpdateDnsZone(domainName string, dnsZone *DnsZoneData) (
 
 // Update set of DNS records for a given domain name, returning updated DNS records.
 func (s *NetcupSession) UpdateDnsRecords(domainName string, dnsRecordSet *[]DnsRecord) (*[]DnsRecord, error) {
+	emptyRecs := make([]DnsRecord, 0)
 	if buf, err := doPost(s.endpoint, &UpdateDnsRecordsPayload{
 		Action: actionUpdateDnsRecords,
 		Params: &UpdateDnsRecordsParams{
@@ -370,16 +372,16 @@ func (s *NetcupSession) UpdateDnsRecords(domainName string, dnsRecordSet *[]DnsR
 			},
 		},
 	}); err != nil {
-		return nil, err
+		return &emptyRecs, err
 	} else {
 		respData := &UpdateDnsRecordsResponseData{
-			DnsRecords: make([]DnsRecord, 0),
+			DnsRecords: emptyRecs,
 		}
 		if br, err := handleResponse("UpdateDnsRecords", buf, respData); err != nil {
 			if br != nil {
 				s.LastResponse = br
 			}
-			return nil, err
+			return &emptyRecs, err
 		} else {
 			s.LastResponse = br
 			return &respData.DnsRecords, nil
