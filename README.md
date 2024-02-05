@@ -50,6 +50,28 @@ This should give you an output like:
 DNS zone: { "DomainName": "myowndomain.org", "Ttl": "...", "Serial": "...", "Refresh": "...", "Retry": "...", "Expire": "...", "DnsSecStatus": false
 ```
 
+Error Handling
+--------------
+
+Usually one would expect an ``err`` set only in case of a "hard" or _non-recoverable_ error. This is true 
+for a technical type of error, like failed REST API call or a broken network connection, but the 
+Netcup API may set status to "error" in some cases, where you would rather 
+[assume a warning](https://github.com/mrueg/external-dns-netcup-webhook/issues/5#issuecomment-1913528766).
+In such case, the last response from Netcup API is preserved inside the ``NetcupSession`` and can be examined: 
+
+```golang
+recs, err := session.InfoDnsRecords("myowndomain.org")
+if err != nil {
+	if session.LastResponse != nil && 
+		sess.LastResponse.Status == string(netcup.StatusError) &&
+		sess.LastResponse.StatusCode == 5029 {
+			// no records are found in the DNS zone - Netcup indicates an error here.
+			println("no error")
+		} else {
+			return fmt.Errorf("non-recoverable error on InfoDnsRecords: %v", err)
+		}
+}
+```
 
 License
 -------
