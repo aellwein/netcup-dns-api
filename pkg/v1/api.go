@@ -494,7 +494,7 @@ func handleResponse(reqType string, buf *bytes.Buffer, respData interface{}) (*N
 	if err := dec.Decode(resp); err != nil {
 		return nil, err
 	}
-	if resp.Status != string(StatusSuccess) {
+	if resp.Status == string(StatusError) {
 		return &resp.NetcupBaseResponseMessage, fmt.Errorf("%s failed: (%d) '%s' '%s' '%s'",
 			reqType, resp.StatusCode, resp.Status, resp.ShortMessage, resp.LongMessage)
 	}
