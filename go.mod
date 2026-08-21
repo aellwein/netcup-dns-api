@@ -1,6 +1,6 @@
 module github.com/aellwein/netcup-dns-api
 
-go 1.25.10
+go 1.26.7
 
 require github.com/stretchr/testify v1.12.1
 
