@@ -100,6 +100,9 @@ const (
 	CodeResourceDoesNotExist = "resourceDoesNotExist"
 	// CodeAuthenticationError is returned for an invalid or expired API key.
 	CodeAuthenticationError = "authenticationError"
+	// CodeValidationError is returned for a malformed parameter, such as a
+	// domain name that is not a valid hostname.
+	CodeValidationError = "validationError"
 )
 
 // APIError is returned when the API reports success: false. The messages are
@@ -212,6 +215,17 @@ func (c *Client) DeleteAcmeChallenge(ctx context.Context, domainId int, scope st
 	return c.do(ctx, http.MethodDelete, acmeRecordPath(domainId, scope, value), nil, nil)
 }
 
+// excerpt renders a response body for an error message, shortened so an error
+// page does not end up in the log in full.
+func excerpt(body []byte) string {
+	const limit = 200
+	text := strings.Join(strings.Fields(string(body)), " ")
+	if len(text) > limit {
+		return text[:limit] + "..."
+	}
+	return text
+}
+
 func acmePath(domainId int) string {
 	return fmt.Sprintf("domain/%d/acme/challenge", domainId)
 }
@@ -261,7 +275,10 @@ func (c *Client) do(ctx context.Context, method string, path string, body interf
 
 	var envelope response
 	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return fmt.Errorf("unable to decode %s %s response: %w", method, path, err)
+		// Not the documented envelope at all, e.g. an error page from a proxy
+		// in front of the API. Carry the body so there is something to debug.
+		return fmt.Errorf("unable to decode %s %s response (HTTP %d): %w: %s",
+			method, path, resp.StatusCode, err, excerpt(raw))
 	}
 	if !envelope.Success {
 		return &APIError{
@@ -282,6 +299,10 @@ func (c *Client) do(ctx context.Context, method string, path string, body interf
 // below a delegated subzone therefore resolves to that subzone rather than to
 // its parent, and a multi-label public suffix is not mistaken for the zone.
 //
+// Leading labels beginning with an underscore, such as the _acme-challenge
+// prefix, are skipped: the API validates the name as a hostname and rejects
+// them outright, and they can never name a domain of their own.
+//
 // Names that are not in the account yield an *APIError with code
 // "resourceDoesNotExist". Any other failure aborts the walk and is returned
 // as-is, so an invalid API key is not reported as a missing zone.
@@ -290,7 +311,21 @@ func (c *Client) do(ctx context.Context, method string, path string, body interf
 // that want to do their own lookup.
 func (c *Client) ResolveDomain(ctx context.Context, name string) (*Domain, error) {
 	name = strings.TrimSuffix(name, ".")
-	for remainder := name; strings.Count(remainder, ".") >= 1; {
+
+	// The fqdn parameter is validated as a hostname, so a label starting with
+	// an underscore (_acme-challenge, _dmarc, _tcp) is rejected with a
+	// validation error rather than reported as an unknown domain. Such a label
+	// can never be a domain of its own, so the walk starts below it.
+	remainder := name
+	for strings.HasPrefix(remainder, "_") {
+		_, rest, found := strings.Cut(remainder, ".")
+		if !found {
+			break
+		}
+		remainder = rest
+	}
+
+	for strings.Count(remainder, ".") >= 1 {
 		domains, err := c.GetDomains(ctx, remainder)
 		switch {
 		case err == nil && len(domains) > 0:
