@@ -72,6 +72,83 @@ if err != nil {
 }
 ```
 
+New netcup REST API
+-------------------
+
+``pkg/rest/v1`` implements netcup's newer REST API at ``https://api.netcup.com/v1``,
+used for domains on their current DNS backend. It is a separate client: the REST API
+authenticates with a single bearer token, keeps no session, and addresses zones by a
+numeric id, so nothing is shared with the legacy CCP client above.
+
+Currently the ACME challenge endpoints are implemented, along with the domain lookup
+they need. The general record surface (zone revisions and changesets) is not covered yet.
+
+```golang
+import (
+	"context"
+	"log"
+
+	netcup "github.com/aellwein/netcup-dns-api/pkg/rest/v1"
+)
+
+func main() {
+	client := netcup.NewClient("myApiKey", nil)
+	ctx := context.Background()
+
+	// The ACME key authorization digest, 43 characters of base64url. With
+	// cert-manager this is the Key of the ChallengeRequest.
+	digest := "odeFPdrsdv0DkYkJO27cpRGWydB05G9xxXJa9QZwv2Q"
+
+	// Find the zone that owns the challenge name, longest match first, so a
+	// delegated subzone wins over its parent.
+	domain, err := client.ResolveDomain(ctx, "_acme-challenge.host.myowndomain.org")
+	if err != nil {
+		panic(err)
+	}
+
+	scope, err := netcup.AcmeScope("_acme-challenge.host.myowndomain.org", domain.Fqdn)
+	if err != nil {
+		panic(err)
+	}
+
+	// Adding is idempotent, so this may be called repeatedly for the same value.
+	if _, err := client.AddAcmeChallenge(ctx, domain.Id, scope, digest); err != nil {
+		panic(err)
+	}
+	log.Println("challenge record created")
+
+	if err := client.DeleteAcmeChallenge(ctx, domain.Id, scope, digest); err != nil && !netcup.IsNotFound(err) {
+		panic(err)
+	}
+}
+```
+
+Errors from the API are returned as ``*APIError``, which carries the HTTP status and the
+messages verbatim. Branch on the code rather than the HTTP status or the message text: an
+invalid API key is answered with HTTP 400 rather than 401, and the human-readable messages
+are reused generics.
+
+```golang
+if _, err := client.GetDomains(ctx, "myowndomain.org"); err != nil {
+	switch {
+	case netcup.IsAuthError(err):
+		// the API key was rejected
+	case netcup.IsNotFound(err):
+		// no such domain in this account
+	default:
+		var apiErr *netcup.APIError
+		if errors.As(err, &apiErr) {
+			log.Println("netcup reported:", apiErr.Errors)
+		}
+	}
+}
+```
+
+Note on deployment: a created challenge record reports ``status: "deployed"`` within a
+second or two, but only becomes resolvable on the authoritative nameservers roughly a
+minute later, and not on all of them at once. The status is therefore not a signal that
+the challenge is ready to be validated; check DNS if you need to know that.
+
 License
 -------
 
