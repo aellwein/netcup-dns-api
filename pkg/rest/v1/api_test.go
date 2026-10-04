@@ -229,7 +229,6 @@ func found(path string, id int, fqdn string) route {
 // subzone belongs to that subzone, not to the parent domain.
 func TestResolveDomainPrefersTheLongestMatch(t *testing.T) {
 	ts := withTestServer(t,
-		notFound("/domain?fqdn=_acme-challenge.host.sub.example.com"),
 		notFound("/domain?fqdn=host.sub.example.com"),
 		found("/domain?fqdn=sub.example.com", 222, "sub.example.com"),
 		found("/domain?fqdn=example.com", 111, "example.com"),
@@ -246,7 +245,6 @@ func TestResolveDomainPrefersTheLongestMatch(t *testing.T) {
 // A multi-label public suffix must not be mistaken for the zone.
 func TestResolveDomainHandlesMultiLabelSuffix(t *testing.T) {
 	ts := withTestServer(t,
-		notFound("/domain?fqdn=_acme-challenge.example.co.uk"),
 		found("/domain?fqdn=example.co.uk", 333, "example.co.uk"),
 	)
 	defer ts.Close()
@@ -259,7 +257,6 @@ func TestResolveDomainHandlesMultiLabelSuffix(t *testing.T) {
 
 func TestResolveDomainNotFound(t *testing.T) {
 	ts := withTestServer(t,
-		notFound("/domain?fqdn=_acme-challenge.example.com"),
 		notFound("/domain?fqdn=example.com"),
 	)
 	defer ts.Close()
@@ -276,7 +273,7 @@ func TestResolveDomainNotFound(t *testing.T) {
 // the test if a second request arrives.
 func TestResolveDomainStopsOnAuthError(t *testing.T) {
 	ts := withTestServer(t,
-		route{"GET", "/domain?fqdn=_acme-challenge.example.com", 400, authErrorBody, ""},
+		route{"GET", "/domain?fqdn=example.com", 400, authErrorBody, ""},
 	)
 	defer ts.Close()
 
@@ -365,4 +362,105 @@ func TestSuppliedHTTPClientIsUsed(t *testing.T) {
 	custom := &http.Client{Timeout: 42 * time.Second}
 	c := NewClient("key", &ClientOptions{HTTPClient: custom})
 	assert.Same(t, custom, c.httpClient)
+}
+
+const validationErrorBody = `{
+  "success": false,
+  "errors": [{"code": "validationError", "message": "Domain name is not a valid domain name."}],
+  "messages": [], "meta": null, "result": null
+}`
+
+// The fqdn query parameter is validated as a hostname, so a label starting
+// with an underscore is rejected outright with 400 rather than reported as an
+// unknown domain. Probing such a name would abort the walk, so those labels
+// are skipped. The test server fails the test on any unexpected request, so a
+// probe of the underscore name would be caught here.
+func TestResolveDomainSkipsUnderscoreLabels(t *testing.T) {
+	ts := withTestServer(t,
+		notFound("/domain?fqdn=host.example.com"),
+		found("/domain?fqdn=example.com", 111, "example.com"),
+	)
+	defer ts.Close()
+
+	domain, err := testClient(ts.URL).ResolveDomain(context.Background(), "_acme-challenge.host.example.com")
+
+	require.NoError(t, err)
+	assert.Equal(t, 111, domain.Id)
+}
+
+// Several leading underscore labels, as in a service name.
+func TestResolveDomainSkipsSeveralUnderscoreLabels(t *testing.T) {
+	ts := withTestServer(t, found("/domain?fqdn=example.com", 111, "example.com"))
+	defer ts.Close()
+
+	domain, err := testClient(ts.URL).ResolveDomain(context.Background(), "_sip._tcp.example.com")
+
+	require.NoError(t, err)
+	assert.Equal(t, 111, domain.Id)
+}
+
+// A validation error from the API must abort the walk rather than be treated
+// as "this is not a zone, keep going".
+func TestResolveDomainStopsOnValidationError(t *testing.T) {
+	ts := withTestServer(t,
+		route{"GET", "/domain?fqdn=host.example.com", 400, validationErrorBody, ""},
+	)
+	defer ts.Close()
+
+	_, err := testClient(ts.URL).ResolveDomain(context.Background(), "host.example.com")
+
+	require.Error(t, err)
+	assert.True(t, HasCode(err, CodeValidationError))
+	assert.False(t, IsNotFound(err))
+}
+
+func TestGetAcmeChallenge(t *testing.T) {
+	ts := withTestServer(t, route{
+		"GET", "/domain/1047093/acme/challenge/host/" + testValue, 200, challengeExistsBody, "",
+	})
+	defer ts.Close()
+
+	challenges, err := testClient(ts.URL).GetAcmeChallenge(context.Background(), testDomain, testScope, testValue)
+
+	require.NoError(t, err)
+	require.Len(t, challenges, 1)
+	assert.Equal(t, testValue, challenges[0].Value)
+	assert.Equal(t, "deployed", challenges[0].Status)
+}
+
+func TestGetAcmeChallengeNotPresent(t *testing.T) {
+	ts := withTestServer(t, route{
+		"GET", "/domain/1047093/acme/challenge/host/" + testValue, 404,
+		`{"success": false, "errors": [{"code": "resourceDoesNotExist", "message": "No result was found."}], "messages": [], "meta": null, "result": null}`, "",
+	})
+	defer ts.Close()
+
+	_, err := testClient(ts.URL).GetAcmeChallenge(context.Background(), testDomain, testScope, testValue)
+
+	require.Error(t, err)
+	assert.True(t, IsNotFound(err))
+}
+
+// A gateway between the client and the API may answer with something that is
+// not the documented envelope at all. The body has to reach the caller, or
+// there is nothing to debug from.
+func TestNonJSONResponseIsReported(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("<html><body>502 Bad Gateway</body></html>"))
+	}))
+	defer ts.Close()
+
+	_, err := testClient(ts.URL).GetDomains(context.Background(), "example.com")
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "502")
+	assert.ErrorContains(t, err, "Bad Gateway")
+}
+
+// An empty scope cannot be expressed: the API spells the apex "@".
+func TestAcmeScopeRejectsAnEmptyScope(t *testing.T) {
+	_, err := AcmeScope("_acme-challenge..example.com", "example.com")
+	assert.Error(t, err)
 }
